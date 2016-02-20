@@ -1,6 +1,9 @@
 package hickson
 
-import "sync"
+import (
+	"net/http"
+	"sync"
+)
 
 func RetryAll(factories ...RetryPolicyFactory) RetryPolicyFactory {
 	return &retryAllPolicyFactory{factories}
@@ -10,10 +13,10 @@ type retryAllPolicyFactory struct {
 	factories []RetryPolicyFactory
 }
 
-func (f *retryAllPolicyFactory) NewRetryPolicy() RetryPolicy {
+func (f *retryAllPolicyFactory) NewRetryPolicy(req *http.Request) RetryPolicy {
 	policies := make([]RetryPolicy, len(f.factories))
 	for _, policyFactory := range f.factories {
-		policies = append(policies, policyFactory.NewRetryPolicy())
+		policies = append(policies, policyFactory.NewRetryPolicy(req))
 	}
 	return &retryAllPolicy{policies}
 }

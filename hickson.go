@@ -15,7 +15,7 @@ type RetryPolicy interface {
 }
 
 type RetryPolicyFactory interface {
-	NewRetryPolicy() RetryPolicy
+	NewRetryPolicy(*http.Request) RetryPolicy
 }
 
 var errRequestCanceled = errors.New("net/http: request canceled while retrying")
@@ -43,7 +43,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Body.Close()
 	}
 
-	retryPolicy := t.retryPolicyFactory.NewRetryPolicy()
+	retryPolicy := t.retryPolicyFactory.NewRetryPolicy(req)
 	defer retryPolicy.Close()
 
 	for {

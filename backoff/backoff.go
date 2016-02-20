@@ -1,6 +1,8 @@
 package backoff
 
 import (
+	"net/http"
+
 	"github.com/f2prateek/hickson"
 	"github.com/segmentio/backo-go"
 )
@@ -15,7 +17,7 @@ type factory struct {
 	b *backo.Backo
 }
 
-func (f *factory) NewRetryPolicy() hickson.RetryPolicy {
+func (f *factory) NewRetryPolicy(_ *http.Request) hickson.RetryPolicy {
 	ticker := f.b.NewTicker()
 	return &retryPolicy{ticker, make(chan struct{})}
 }
