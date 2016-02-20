@@ -25,7 +25,7 @@ type retryAllPolicy struct {
 	policies []RetryPolicy
 }
 
-func (all *retryAllPolicy) Retry() <-chan struct{} {
+func (all *retryAllPolicy) Retry(req *http.Response, err error) <-chan struct{} {
 	// Retry emits on out once *all* of the policies emit on their retry channel.
 	out := make(chan struct{})
 
@@ -36,7 +36,7 @@ func (all *retryAllPolicy) Retry() <-chan struct{} {
 				wg.Add(1)
 				go func(policy RetryPolicy) {
 					defer wg.Done()
-					<-policy.Retry()
+					<-policy.Retry(req, err)
 				}(policy)
 			}
 			wg.Wait()

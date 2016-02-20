@@ -9,7 +9,7 @@ import (
 )
 
 type RetryPolicy interface {
-	Retry() <-chan struct{}
+	Retry(*http.Response, error) <-chan struct{}
 	Cancel() <-chan struct{}
 	Close()
 }
@@ -52,14 +52,11 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		res, err := t.delegate.RoundTrip(req)
-		if err == nil {
-			return res, nil
-		}
 
 		select {
-		case <-retryPolicy.Retry():
+		case <-retryPolicy.Retry(res, err):
 		case <-retryPolicy.Cancel():
-			return nil, errRetriesExhausted
+			return res, err
 		case <-req.Cancel:
 			return nil, errRequestCanceled
 		}

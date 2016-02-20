@@ -17,7 +17,7 @@ type factory struct {
 	b *backo.Backo
 }
 
-func (f *factory) NewRetryPolicy(_ *http.Request) hickson.RetryPolicy {
+func (f *factory) NewRetryPolicy(req *http.Request) hickson.RetryPolicy {
 	ticker := f.b.NewTicker()
 	return &retryPolicy{ticker, make(chan struct{})}
 }
@@ -27,7 +27,7 @@ type retryPolicy struct {
 	done   chan struct{}
 }
 
-func (p *retryPolicy) Retry() <-chan struct{} {
+func (p *retryPolicy) Retry(req *http.Response, err error) <-chan struct{} {
 	out := make(chan struct{})
 	go func() {
 		for {
