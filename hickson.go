@@ -6,23 +6,31 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"time"
-
-	"github.com/segmentio/backo-go"
 )
 
-var errRequestCanceled = errors.New("net/http: request canceled while retrying")
+type RetryPolicy interface {
+	Retry() <-chan struct{}
+	Cancel() <-chan struct{}
+	Close()
+}
 
-func New(r http.RoundTripper) http.RoundTripper {
+type RetryPolicyFactory interface {
+	NewRetryPolicy() RetryPolicy
+}
+
+var errRequestCanceled = errors.New("net/http: request canceled while retrying")
+var errRetriesExhausted = errors.New("hickson: retries exhausted")
+
+func New(r http.RoundTripper, retryPolicyFactory RetryPolicyFactory) http.RoundTripper {
 	return &transport{
-		delegate: r,
-		backo:    backo.NewBacko(1*time.Second, 2, 1, 10*time.Second),
+		delegate:           r,
+		retryPolicyFactory: retryPolicyFactory,
 	}
 }
 
 type transport struct {
-	delegate http.RoundTripper
-	backo    *backo.Backo
+	delegate           http.RoundTripper
+	retryPolicyFactory RetryPolicyFactory
 }
 
 func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -35,8 +43,8 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Body.Close()
 	}
 
-	ticker := t.backo.NewTicker()
-	defer ticker.Stop()
+	retryPolicy := t.retryPolicyFactory.NewRetryPolicy()
+	defer retryPolicy.Close()
 
 	for {
 		if req.Body != nil {
@@ -49,7 +57,9 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		select {
-		case <-ticker.C:
+		case <-retryPolicy.Retry():
+		case <-retryPolicy.Cancel():
+			return nil, errRetriesExhausted
 		case <-req.Cancel:
 			return nil, errRequestCanceled
 		}
