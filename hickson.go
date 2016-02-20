@@ -21,9 +21,9 @@ type RetryPolicyFactory interface {
 var errRequestCanceled = errors.New("net/http: request canceled while retrying")
 var errRetriesExhausted = errors.New("hickson: retries exhausted")
 
-func New(r http.RoundTripper, retryPolicyFactory RetryPolicyFactory) http.RoundTripper {
+func New(delegate http.RoundTripper, retryPolicyFactory RetryPolicyFactory) http.RoundTripper {
 	return &transport{
-		delegate:           r,
+		delegate:           delegate,
 		retryPolicyFactory: retryPolicyFactory,
 	}
 }
