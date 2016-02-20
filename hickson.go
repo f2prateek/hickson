@@ -52,7 +52,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 
 		res, err := t.delegate.RoundTrip(req)
-		if err != nil {
+		if err == nil {
 			return res, nil
 		}
 
