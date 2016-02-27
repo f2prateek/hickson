@@ -1,82 +1,38 @@
 package hickson
 
-import (
-	"net/http"
-	"sync"
-)
+import "net/http"
 
+// All returns a RetryPolicyFactory whose policy is to retry only if all the
+// policies agree to retry. If any of the policies do not want to retry or
+// return an error, this policy will do the same. Policies are consulted in the
+// order they are provided.
 func RetryAll(factories ...RetryPolicyFactory) RetryPolicyFactory {
-	return &retryAllPolicyFactory{factories}
+	return RetryPolicyFactoryFunc(func(r *http.Request) RetryPolicy {
+		policies := make([]RetryPolicy, 0)
+		for _, f := range factories {
+			policy := f.New(r)
+			policies = append(policies, policy)
+		}
+
+		return &allPolicy{
+			policies: policies,
+		}
+	})
 }
 
-type retryAllPolicyFactory struct {
-	factories []RetryPolicyFactory
-}
-
-func (f *retryAllPolicyFactory) NewRetryPolicy(req *http.Request) RetryPolicy {
-	policies := make([]RetryPolicy, len(f.factories))
-	for _, policyFactory := range f.factories {
-		policies = append(policies, policyFactory.NewRetryPolicy(req))
-	}
-	return &retryAllPolicy{policies}
-}
-
-type retryAllPolicy struct {
+type allPolicy struct {
 	policies []RetryPolicy
 }
 
-func (all *retryAllPolicy) Retry(req *http.Response, err error) <-chan struct{} {
-	// Retry emits on out once *all* of the policies emit on their retry channel.
-	out := make(chan struct{})
-
-	go func() {
-		for {
-			var wg sync.WaitGroup
-			for _, policy := range all.policies {
-				wg.Add(1)
-				go func(policy RetryPolicy) {
-					defer wg.Done()
-					<-policy.Retry(req, err)
-				}(policy)
-			}
-			wg.Wait()
-			out <- struct{}{}
-		}
-	}()
-
-	return out
-}
-
-func (p *retryAllPolicy) Cancel() <-chan struct{} {
-	// Cancel emits on out once *any* of the policies emit on their cancel channel.
-	out := make(chan struct{})
-
-	go func() {
-		for {
-			merged := make(chan struct{}, len(p.policies))
-			done := make(chan struct{})
-			defer close(done)
-
-			for _, policy := range p.policies {
-				go func(policy RetryPolicy) {
-					select {
-					case <-policy.Cancel():
-						merged <- struct{}{}
-					case <-done:
-						return
-					}
-				}(policy)
-			}
-
-			out <- <-merged
-		}
-	}()
-
-	return out
-}
-
-func (p *retryAllPolicy) Close() {
+func (p *allPolicy) Retry(resp *http.Response, respErr error) (bool, error) {
 	for _, policy := range p.policies {
-		policy.Close()
+		retry, err := policy.Retry(resp, respErr)
+		if err != nil {
+			return false, err
+		}
+		if !retry {
+			return false, nil
+		}
 	}
+	return true, nil
 }

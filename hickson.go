@@ -1,64 +1,66 @@
 package hickson
 
 import (
-	"bytes"
 	"errors"
-	"io"
-	"io/ioutil"
 	"net/http"
+
+	"github.com/f2prateek/train"
 )
 
-type RetryPolicy interface {
-	Retry(*http.Response, error) <-chan struct{}
-	Cancel() <-chan struct{}
-	Close()
-}
+var (
+	ErrRequestCanceled  = errors.New("request canceled")
+	ErrRetriesExhausted = errors.New("retries exhausted")
+)
 
 type RetryPolicyFactory interface {
-	NewRetryPolicy(*http.Request) RetryPolicy
+	// New returns a retry policy for the given request.
+	New(*http.Request) RetryPolicy
 }
 
-var errRequestCanceled = errors.New("net/http: request canceled while retrying")
-var errRetriesExhausted = errors.New("hickson: retries exhausted")
+// The RetryPolicyFactoryFunc type is an adapter to allow the use of ordinary
+// functions as retry policy factories. If f is a function with the appropriate
+// signature, RetryPolicyFactoryFunc(f) is a RetryPolicyFactory that calls f.
+type RetryPolicyFactoryFunc func(*http.Request) RetryPolicy
 
-func New(delegate http.RoundTripper, retryPolicyFactory RetryPolicyFactory) http.RoundTripper {
-	return &transport{
-		delegate:           delegate,
-		retryPolicyFactory: retryPolicyFactory,
-	}
+// New calls f(r).
+func (f RetryPolicyFactoryFunc) New(r *http.Request) RetryPolicy {
+	return f(r)
 }
 
-type transport struct {
-	delegate           http.RoundTripper
-	retryPolicyFactory RetryPolicyFactory
+type RetryPolicy interface {
+	// Retry returns true if the if the request should be retried, return false
+	// otherwise. Optionally, it may return an error that will be propogated up
+	// the chain.
+	Retry(*http.Response, error) (bool, error)
 }
 
-func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	var buf bytes.Buffer
-	if req.Body != nil {
-		if _, err := io.Copy(&buf, req.Body); err != nil {
-			req.Body.Close()
-			return nil, err
-		}
-		req.Body.Close()
-	}
+// New returns an interceptor that handles retries.
+func New(factory RetryPolicyFactory) train.Interceptor {
+	return &hickson{factory}
+}
 
-	retryPolicy := t.retryPolicyFactory.NewRetryPolicy(req)
-	defer retryPolicy.Close()
+type hickson struct {
+	factory RetryPolicyFactory
+}
+
+func (h *hickson) Intercept(c train.Chain) (*http.Response, error) {
+	req := c.Request()
+	policy := h.factory.New(req)
 
 	for {
-		if req.Body != nil {
-			req.Body = ioutil.NopCloser(&buf)
+		select {
+		case <-req.Cancel:
+			return nil, ErrRequestCanceled
+		default:
 		}
 
-		res, err := t.delegate.RoundTrip(req)
-
-		select {
-		case <-retryPolicy.Retry(res, err):
-		case <-retryPolicy.Cancel():
-			return res, err
-		case <-req.Cancel:
-			return nil, errRequestCanceled
+		resp, respErr := c.Proceed(req)
+		retry, retryErr := policy.Retry(resp, respErr)
+		if retryErr != nil {
+			return nil, retryErr
+		}
+		if !retry {
+			return nil, ErrRetriesExhausted
 		}
 	}
 }
