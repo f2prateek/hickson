@@ -123,19 +123,8 @@ func ExampleNew() {
 	}
 
 	// Make the request. The retry logic is transparent to your caller.
-	resp, err := client.Get(ts.URL)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	// Read the body.
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	resp, _ := client.Get(ts.URL)
+	body, _ := ioutil.ReadAll(resp.Body)
 	fmt.Println(string(body))
 	// Output: Hello World!
 }
