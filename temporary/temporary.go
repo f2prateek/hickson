@@ -8,7 +8,7 @@ import (
 
 // TemporaryErrorsRetryPolicy returns a retry policy that retries any temporary
 // errors.
-func TemporaryErrors() hickson.RetryPolicyFactory {
+func RetryErrors() hickson.RetryPolicyFactory {
 	return hickson.RetryPolicyFactoryFunc(func(r *http.Request) hickson.RetryPolicy {
 		return &temporaryRetryPolicy{}
 	})
@@ -21,12 +21,12 @@ type temporary interface {
 
 type temporaryRetryPolicy struct{}
 
-func (p *temporaryRetryPolicy) Retry(resp *http.Response, err error) (bool, error) {
+func (p *temporaryRetryPolicy) Retry(resp *http.Response, err error) bool {
 	if terr, ok := err.(temporary); ok {
 		if terr.Temporary() {
-			return true, nil
+			return true
 		}
 	}
 
-	return false, nil
+	return false
 }

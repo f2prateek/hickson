@@ -2,40 +2,27 @@ package temporary_test
 
 import (
 	"errors"
-	"fmt"
+	"net"
 	"testing"
 
 	"github.com/bmizerany/assert"
 	"github.com/f2prateek/hickson/temporary"
 )
 
-type TemporaryError struct {
-	temporary bool
-}
-
-func (t *TemporaryError) Temporary() bool {
-	return t.temporary
-}
-
-func (t *TemporaryError) Error() string {
-	return fmt.Sprintf("%v", t)
-}
-
 func TestTemporary(t *testing.T) {
 	cases := []struct {
 		err   error
 		retry bool
 	}{
-		{&TemporaryError{true}, true},
-		{&TemporaryError{false}, false},
+		{&net.DNSError{IsTemporary: true}, true},
+		{&net.DNSError{IsTemporary: false}, false},
 		{errors.New("test"), false},
 	}
 
-	policy := temporary.TemporaryErrors().New(nil)
+	policy := temporary.RetryErrors().New(nil)
 
 	for _, c := range cases {
-		retry, err := policy.Retry(nil, c.err)
-		assert.Equal(t, nil, err)
+		retry := policy.Retry(nil, c.err)
 		assert.Equal(t, c.retry, retry)
 	}
 }

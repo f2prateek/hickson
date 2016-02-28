@@ -2,8 +2,8 @@ package hickson
 
 import "net/http"
 
-// Max wraps the given factory so that policies created will only be called at
-// most `maxAttempts` times.
+// RetryMax wraps a factory so that policies will only be called at most
+// `maxAttempts` times.
 func RetryMax(maxAttempts int, factory RetryPolicyFactory) RetryPolicyFactory {
 	return RetryPolicyFactoryFunc(func(r *http.Request) RetryPolicy {
 		return &maxAttemptsPolicy{
@@ -19,9 +19,9 @@ type maxAttemptsPolicy struct {
 	delegate    RetryPolicy
 }
 
-func (p *maxAttemptsPolicy) Retry(resp *http.Response, respErr error) (bool, error) {
+func (p *maxAttemptsPolicy) Retry(resp *http.Response, respErr error) bool {
 	if p.attempts >= p.maxAttempts {
-		return false, nil
+		return false
 	}
 
 	p.attempts++

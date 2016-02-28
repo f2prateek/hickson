@@ -3,9 +3,9 @@ package hickson
 import "net/http"
 
 // All returns a RetryPolicyFactory whose policy is to retry only if all the
-// policies agree to retry. If any of the policies do not want to retry or
-// return an error, this policy will do the same. Policies are consulted in the
-// order they are provided.
+// policies agree to retry. If any of the policies do not want to retry, this
+// policy will do the same. Policies are consulted in the order they are
+// provided.
 func RetryAll(factories ...RetryPolicyFactory) RetryPolicyFactory {
 	return RetryPolicyFactoryFunc(func(r *http.Request) RetryPolicy {
 		policies := make([]RetryPolicy, 0)
@@ -24,15 +24,12 @@ type allPolicy struct {
 	policies []RetryPolicy
 }
 
-func (p *allPolicy) Retry(resp *http.Response, respErr error) (bool, error) {
+func (p *allPolicy) Retry(resp *http.Response, respErr error) bool {
 	for _, policy := range p.policies {
-		retry, err := policy.Retry(resp, respErr)
-		if err != nil {
-			return false, err
-		}
+		retry := policy.Retry(resp, respErr)
 		if !retry {
-			return false, nil
+			return false
 		}
 	}
-	return true, nil
+	return true
 }

@@ -2,13 +2,19 @@ package hickson_test
 
 import (
 	"errors"
-	"log"
+	"fmt"
+	"io/ioutil"
+	"math/rand"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/bmizerany/assert"
 	"github.com/f2prateek/hickson"
+	"github.com/f2prateek/hickson/temporary"
 	"github.com/f2prateek/train"
+	"github.com/gohttp/response"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -19,9 +25,9 @@ var errInterceptor = train.InterceptorFunc(func(chain train.Chain) (*http.Respon
 
 func TestHickson(t *testing.T) {
 	mockPolicy := new(MockPolicy)
-	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
-	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
-	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(false, nil).Once()
+	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(true).Once()
+	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(true).Once()
+	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(false).Once()
 	mockPolicyFactory := mockFactory(mockPolicy)
 	client := &http.Client{
 		Transport: train.Transport(hickson.New(mockPolicyFactory), errInterceptor),
@@ -31,30 +37,13 @@ func TestHickson(t *testing.T) {
 
 	mockPolicy.AssertExpectations(t)
 	assert.Equal(t, true, resp == nil)
-	assert.Equal(t, "Get https://golang.org/: retries exhausted", err.Error())
-}
-
-func TestErrorsArePropogated(t *testing.T) {
-	mockPolicy := new(MockPolicy)
-	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
-	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
-	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(false, errors.New("test: policy error")).Once()
-	mockPolicyFactory := mockFactory(mockPolicy)
-	client := &http.Client{
-		Transport: train.Transport(hickson.New(mockPolicyFactory), errInterceptor),
-	}
-
-	resp, err := client.Get("https://golang.org/")
-
-	mockPolicy.AssertExpectations(t)
-	assert.Equal(t, true, resp == nil)
-	assert.Equal(t, "Get https://golang.org/: test: policy error", err.Error())
+	assert.Equal(t, "Get https://golang.org/: test: short error", err.Error())
 }
 
 func TestMax(t *testing.T) {
 	mockPolicy := new(MockPolicy)
-	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
-	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
+	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(true).Once()
+	mockPolicy.On("Retry", mock.Anything, mock.Anything).Return(true).Once()
 	mockPolicyFactory := mockFactory(mockPolicy)
 	client := &http.Client{
 		Transport: train.Transport(hickson.New(hickson.RetryMax(2, mockPolicyFactory)), errInterceptor),
@@ -64,17 +53,17 @@ func TestMax(t *testing.T) {
 
 	mockPolicy.AssertExpectations(t)
 	assert.Equal(t, true, resp == nil)
-	assert.Equal(t, "Get https://golang.org/: retries exhausted", err.Error())
+	assert.Equal(t, "Get https://golang.org/: test: short error", err.Error())
 }
 
 func TestAllRetries(t *testing.T) {
 	policy1 := new(MockPolicy)
-	policy1.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
-	policy1.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
+	policy1.On("Retry", mock.Anything, mock.Anything).Return(true).Once()
+	policy1.On("Retry", mock.Anything, mock.Anything).Return(true).Once()
 
 	policy2 := new(MockPolicy)
-	policy2.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
-	policy2.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
+	policy2.On("Retry", mock.Anything, mock.Anything).Return(true).Once()
+	policy2.On("Retry", mock.Anything, mock.Anything).Return(true).Once()
 
 	factory := hickson.RetryMax(2, hickson.RetryAll(mockFactory(policy1), mockFactory(policy2)))
 	client := &http.Client{
@@ -86,16 +75,16 @@ func TestAllRetries(t *testing.T) {
 	policy1.AssertExpectations(t)
 	policy2.AssertExpectations(t)
 	assert.Equal(t, true, resp == nil)
-	assert.Equal(t, "Get https://golang.org/: retries exhausted", err.Error())
+	assert.Equal(t, "Get https://golang.org/: test: short error", err.Error())
 }
 
 func TestAllRetriesFailsWithFirstPolicy(t *testing.T) {
 	policy1 := new(MockPolicy)
-	policy1.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
-	policy1.On("Retry", mock.Anything, mock.Anything).Return(true, errors.New("test: policy1 error")).Once()
+	policy1.On("Retry", mock.Anything, mock.Anything).Return(true).Once()
+	policy1.On("Retry", mock.Anything, mock.Anything).Return(false).Once()
 
 	policy2 := new(MockPolicy)
-	policy2.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
+	policy2.On("Retry", mock.Anything, mock.Anything).Return(true).Once()
 
 	factory := hickson.RetryAll(mockFactory(policy1), mockFactory(policy2))
 	client := &http.Client{
@@ -107,27 +96,48 @@ func TestAllRetriesFailsWithFirstPolicy(t *testing.T) {
 	policy1.AssertExpectations(t)
 	policy2.AssertExpectations(t)
 	assert.Equal(t, true, resp == nil)
-	assert.Equal(t, "Get https://golang.org/: test: policy1 error", err.Error())
+	assert.Equal(t, "Get https://golang.org/: test: short error", err.Error())
 }
 
-func TestAllRetriesCanStop(t *testing.T) {
-	policy1 := new(MockPolicy)
-	policy1.On("Retry", mock.Anything, mock.Anything).Return(true, nil).Once()
+func ExampleNew() {
+	// Our test server.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		response.OK(w, "Hello World!")
+	}))
+	defer ts.Close()
 
-	policy2 := new(MockPolicy)
-	policy2.On("Retry", mock.Anything, mock.Anything).Return(false, nil).Once()
+	// An interceptor that randomly injects a temporary error into the chain.
+	rand.Seed(2) // Try changing this number!
+	errInterceptor := train.InterceptorFunc(func(chain train.Chain) (*http.Response, error) {
+		i := rand.Intn(4)
+		if i != 2 {
+			return nil, &net.DNSError{IsTemporary: true}
+		}
+		return chain.Proceed(chain.Request())
+	})
 
-	factory := hickson.RetryAll(mockFactory(policy1), mockFactory(policy2))
+	// An interceptor that retries any temporary errors a maximum of 5 times.
+	h := hickson.New(hickson.RetryMax(5, temporary.RetryErrors()))
 	client := &http.Client{
-		Transport: train.Transport(hickson.New(factory), errInterceptor),
+		Transport: train.Transport(h, errInterceptor),
 	}
 
-	resp, err := client.Get("https://golang.org/")
+	// Make the request. The retry logic is transparent to your caller.
+	resp, err := client.Get(ts.URL)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
-	policy1.AssertExpectations(t)
-	policy2.AssertExpectations(t)
-	assert.Equal(t, true, resp == nil)
-	assert.Equal(t, "Get https://golang.org/: retries exhausted", err.Error())
+	// Read the body.
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(string(body))
+	// Output: Hello World!
 }
 
 // Mocks.
@@ -149,15 +159,7 @@ func getBool(i interface{}) bool {
 	return false
 }
 
-func getError(i interface{}) error {
-	if e, ok := i.(error); ok {
-		return e
-	}
-	return nil
-}
-
-func (p *MockPolicy) Retry(resp *http.Response, respErr error) (bool, error) {
-	log.Println("Retry:", resp, respErr)
+func (p *MockPolicy) Retry(resp *http.Response, respErr error) bool {
 	args := p.Called(resp, respErr)
-	return getBool(args.Get(0)), getError(args.Get(1))
+	return getBool(args.Get(0))
 }

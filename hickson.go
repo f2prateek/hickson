@@ -8,8 +8,7 @@ import (
 )
 
 var (
-	ErrRequestCanceled  = errors.New("request canceled")
-	ErrRetriesExhausted = errors.New("retries exhausted")
+	ErrRequestCanceled = errors.New("request canceled")
 )
 
 type RetryPolicyFactory interface {
@@ -29,9 +28,8 @@ func (f RetryPolicyFactoryFunc) New(r *http.Request) RetryPolicy {
 
 type RetryPolicy interface {
 	// Retry returns true if the if the request should be retried, return false
-	// otherwise. Optionally, it may return an error that will be propogated up
-	// the chain.
-	Retry(*http.Response, error) (bool, error)
+	// otherwise.
+	Retry(*http.Response, error) bool
 }
 
 // New returns an interceptor that handles retries.
@@ -55,12 +53,9 @@ func (h *hickson) Intercept(c train.Chain) (*http.Response, error) {
 		}
 
 		resp, respErr := c.Proceed(req)
-		retry, retryErr := policy.Retry(resp, respErr)
-		if retryErr != nil {
-			return nil, retryErr
-		}
+		retry := policy.Retry(resp, respErr)
 		if !retry {
-			return nil, ErrRetriesExhausted
+			return resp, respErr
 		}
 	}
 }
