@@ -12,7 +12,6 @@ import (
 
 	"github.com/bmizerany/assert"
 	"github.com/f2prateek/hickson"
-	"github.com/f2prateek/hickson/temporary"
 	"github.com/f2prateek/train"
 	"github.com/gohttp/response"
 	"github.com/stretchr/testify/mock"
@@ -99,6 +98,24 @@ func TestAllRetriesFailsWithFirstPolicy(t *testing.T) {
 	assert.Equal(t, "Get https://golang.org/: test: short error", err.Error())
 }
 
+func TestTemporary(t *testing.T) {
+	cases := []struct {
+		err   error
+		retry bool
+	}{
+		{&net.DNSError{IsTemporary: true}, true},
+		{&net.DNSError{IsTemporary: false}, false},
+		{errors.New("test"), false},
+	}
+
+	policy := hickson.RetryTemporaryErrors().New(nil)
+
+	for _, c := range cases {
+		retry := policy.Retry(nil, c.err)
+		assert.Equal(t, c.retry, retry)
+	}
+}
+
 func ExampleNew() {
 	// Our test server.
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -117,7 +134,7 @@ func ExampleNew() {
 	})
 
 	// An interceptor that retries any temporary errors a maximum of 5 times.
-	h := hickson.New(hickson.RetryMax(5, temporary.RetryErrors()))
+	h := hickson.New(hickson.RetryMax(5, hickson.RetryTemporaryErrors()))
 	client := &http.Client{
 		Transport: train.Transport(h, errInterceptor),
 	}

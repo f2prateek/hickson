@@ -2,7 +2,7 @@ package hickson
 
 import "net/http"
 
-// All returns a RetryPolicyFactory whose policy is to retry only if all the
+// RetryAll returns a RetryPolicyFactory whose policy is to retry only if all the
 // policies agree to retry. If any of the policies do not want to retry, this
 // policy will do the same. Policies are consulted in the order they are
 // provided.

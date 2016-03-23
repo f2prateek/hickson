@@ -1,15 +1,11 @@
-package temporary
+package hickson
 
-import (
-	"net/http"
+import "net/http"
 
-	"github.com/f2prateek/hickson"
-)
-
-// TemporaryErrorsRetryPolicy returns a retry policy that retries any temporary
+// RetryTemporaryErrors returns a retry policy factory that retries any temporary
 // errors.
-func RetryErrors() hickson.RetryPolicyFactory {
-	return hickson.RetryPolicyFactoryFunc(func(r *http.Request) hickson.RetryPolicy {
+func RetryTemporaryErrors() RetryPolicyFactory {
+	return RetryPolicyFactoryFunc(func(r *http.Request) RetryPolicy {
 		return &temporaryRetryPolicy{}
 	})
 }
